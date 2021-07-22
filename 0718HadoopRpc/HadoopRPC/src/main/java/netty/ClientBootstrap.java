@@ -8,7 +8,7 @@ public class ClientBootstrap {
         UserService service = (UserService) consumer.createProxy(UserService.class);
         while(true) {
             Thread.sleep(1000);
-            System.out.println(service.findName(20210123456789L));
+            System.out.println(service.findName(20210000000000L));
         }
     }
 }

@@ -17,7 +17,7 @@ public class UserServiceImpl implements UserService {
             return "心心" ;
         }else
             System.out.println("Error Student ID = " + studentId);
-        return null ;
+        return "null" ;
     }
 
     public static void startServer(String hostName, int port) {
