@@ -1,3 +1,7 @@
+如果图片不显示， 请 git clone到本地进行查看
+
+git clone git@github.com:wanghuan2054/geektime.git
+
 Hbase作业
 
 目录： 
