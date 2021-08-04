@@ -3,13 +3,10 @@ package hive.inoutformat;
 import org.apache.hadoop.io.LongWritable;
 import org.apache.hadoop.io.Text;
 import org.apache.hadoop.mapred.*;
-import org.apache.hive.com.esotericsoftware.kryo.serializers.FieldSerializer;
 
 import java.io.IOException;
 
 public class GeekTextInputFormat implements InputFormat<LongWritable, Text>  , JobConfigurable{
-
-//    org.apache.hive.com.esotericsoftware.kryo.serializers.FieldSerializer
     /**
      * GeekLineRecordReader
      *
