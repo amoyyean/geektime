@@ -29,10 +29,10 @@ public class HbaseApiOperation {
     public void init() throws IOException {
         Configuration conf = HBaseConfiguration.create();
         // 设置ZK Server IP
-//        conf.set("hbase.zookeeper.quorum", "47.101.206.249,47.101.216.12,47.101.204.23");
-        conf.set("hbase.zookeeper.quorum", "192.168.2.100,192.168.2.101,192.168.2.102");
+        conf.set("hbase.zookeeper.quorum", "47.101.206.249:2181,47.101.216.12:2181,47.101.204.23:2181");
+//        conf.set("hbase.zookeeper.quorum", "192.168.2.100,192.168.2.101,192.168.2.102");
         // // 设置ZK node port
-        conf.set("hbase.zookeeper.property.clientPort", "2181");
+//        conf.set("hbase.zookeeper.property.clientPort", "2181");
         this.conn = ConnectionFactory.createConnection(conf);
         this.admin = conn.getAdmin();
         // 获取数据表信息
@@ -93,6 +93,7 @@ public class HbaseApiOperation {
      */
     @Test
     public void createTable(String table, String[] columnFamilys, int versions) throws IOException {
+        this.createNameSpace();
         // 指定表名   表名：$your_name:student
         TableName tableName = TableName.valueOf(table);
 
@@ -489,9 +490,9 @@ public class HbaseApiOperation {
         // 1. 创建表操作
 //        hbaseApiOperation.createTable(HbaseApiOperation.tableName,columnFamilys,versions);
         // 2. 插入数据
-//        hbaseApiOperation.insertData(HbaseApiOperation.tableName,studentArrayList);
+        hbaseApiOperation.insertData(HbaseApiOperation.tableName,studentArrayList);
         // 3. 按照RowKey 点查一行数据
-    /*    String rowKey = "G20210579030073" ;
+/*        String rowKey = "G20210579030073" ;
         Student stu = hbaseApiOperation.getRecordByRowKey(HbaseApiOperation.tableName,rowKey);
         System.out.println(stu.getName() + " " + stu.getStudent_id() + " " + stu.getClassInfo()
                 + " " + stu.getUnderstanding() + " " + stu.getProgramming());*/
@@ -545,7 +546,7 @@ public class HbaseApiOperation {
         }*/
 
         // 12. deleteTable
-        hbaseApiOperation.deleteTable();
+//        hbaseApiOperation.deleteTable();
 
         hbaseApiOperation.destroy();
     }
