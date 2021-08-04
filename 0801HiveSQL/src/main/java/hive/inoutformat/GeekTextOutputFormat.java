@@ -43,7 +43,7 @@ public class GeekTextOutputFormat <K extends WritableComparable, V extends Writa
             String[] words = str.toString().toLowerCase().split("\\s+") ;
             // 生成一个 min-max 之间的随机整数
             int min = 2  ;
-            int max = 6 ;
+            int max = 256 ;
             int randomNum = getRandomNum(min,max) ;
             int validWordCnt = 0 ;
             boolean flag = true ;
