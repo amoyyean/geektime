@@ -70,7 +70,7 @@ object InvertedIndex1 {
 
     val sparkConf: SparkConf = new SparkConf()
     sparkConf.setAppName("SparkRDDInvertedIndex") // 设置应用名称,该名称在Spark Web Ui中显示
-    sparkConf.setMaster("local[1]") // 设置本地模式
+    sparkConf.setMaster("local[*]") // 设置本地模式
 
     // 创建SparkContext
     val sc: SparkContext = new SparkContext(sparkConf)
@@ -79,8 +79,7 @@ object InvertedIndex1 {
     val rawFile: RDD[(String, String)] = sc.wholeTextFiles(inputFilePath.toString, 2): RDD[(String, String)]
     // 将K文件全路径名， 提取出名字
     val validFileContent = rawFile.map(x => (x._1.split("/")(x._1.split("/").length - 1), x._2))
-    // validFileContent为我们最后得到的（文件名，单词）对
-    //    validFileContent.foreach(println)
+
     // 将文件文本内容中的换行符替换成空格，考虑到windows和linux平台换行符不同
     val words = validFileContent.map(content => (content._1, content._2.replaceAll("\r\n", " ")
       .replaceAll("\n", " ")
@@ -137,6 +136,23 @@ object InvertedIndex1 {
       str += "}"
       str
     }).coalesce(1).saveAsTextFile(outputDirPath)
+
+
+    finalResult.map(f => {
+      var str = ""
+      str += "\"" + f._1 + "\":  "
+      var flag = true
+      for (y <- f._2) {
+        if (flag) {
+          str += "{" + y
+          flag = false
+        } else {
+          str += "," + y
+        }
+      }
+      str += "}"
+      str
+    }).coalesce(1).foreach(println)
     // 释放资源
     sc.stop()
   }

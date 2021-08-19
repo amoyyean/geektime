@@ -45,52 +45,155 @@ load data local inpath '/home/hive/ratings.dat' overwrite into table hive_sql_te
 
 使用RDD API实现带词频的倒排索引
 
-### 解法
+倒排索引（Inverted index），也被称为反向索引。它是文档检索系统中最常用的数据结构。被广泛
+地应用于全文搜索引擎。
+例子如下，被索引的文件为（0，1，2代表文件名）
 
-#### SQL
+0. "it is what it is"
+1. "what is it"
+2. "it is a banana"
+我们就能得到下面的反向文件索引：
+"a": {2}
+"banana": {2}
+"is": {0, 1, 2}
+"it": {0, 1, 2}
+"what": {0, 1}
+再加上词频为：
+"a": {(2,1)}
+"banana": {(2,1)}
+"is": {(0,2), (1,1), (2,1)}
+"it": {(0,2), (1,1), (2,1)}
+"what": {(0,1), (1,1)}
 
-```sql
-SELECT t.age , avg(t1.rate) AS AVGRATE from hive_sql_test1.t_user t 
-INNER JOIN hive_sql_test1.t_rating t1 
-ON (T.userid = T1.userid)
-WHERE t1.movieid = 2116 
-GROUP BY T.age
-ORDER BY T.age ; 
+
+
+#### 源码地址
+
+https://github.com/wanghuan2054/geektime/tree/master/0815SparkAPI
+
+#### 开发环境
+
+1. scala 2.12.12
+2. spark 3.1.2
+3. hadoop 3.1.3
+4. jdk 1.8.182
+
+#### 核心思路
+
+1. 读取指定目录下所有文本文件列表，使用wholeTextFiles方法 ，可以返回文档名和整篇文档内容的KV对
+
+​     sc.textFile（）和sc.wholeTextFiles()都支持精确匹配文件和正则匹配文件
+
+​     sc.textFiles(path) 能将path 里的所有文件内容读出，以文件中的每一行作为一条记录的方式。
+
+​     wholeTextFiles允许你读取文件夹下所有的文件，比如多个小的文本文件， 返回[(k,v),(k1,v1),....]  k代表文件名 , v代表整个文件内容。
+
+用textFile时，它的partition的数量是与文件夹下的文件数量（实例中用3个文件）相关，一个文件就是一个partition(既然3个文件就是：partition=3，特别提醒：这里的测试数据是几十byte，较小，如果每个文件较大，要根据相应切分原则切分)。
+wholeTextFiles的partition数量是根据用户指定或者文件大小来（文件内的数据量少）确定，与hdfs目录下的文件数量无关！ 所以wholeTextFile通常用于读取许多小文件的需求。
+
+2. 从文件全路径名K中， 提取出名字（正则匹配/取出文件名）
+3. 将文档内容中的换行符替换成空格，考虑到windows和linux平台换行符不同 ， 及其它一些特殊的stop words替换清洗
+4. 对文档内容切分并压平  , 组装 , 分组聚合 ，并按照文档ID 升序排列
+5. 将结果格式化成目标输出格式，为避免小文件，采用coalesce(1)缩减分区（coalesce会比repartition减少shuffle次数），并写入最终输出目录中单个文件中。
+
+#### POM文件
+
+```xml
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <groupId>org.example</groupId>
+    <artifactId>SparkAPI</artifactId>
+    <version>1.0-SNAPSHOT</version>
+
+    <properties>
+        <maven.compiler.source>8</maven.compiler.source>
+        <maven.compiler.target>8</maven.compiler.target>
+        <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+        <scala.version>2.12</scala.version>
+        <scala.binary.version>2.12.12</scala.binary.version>
+        <spark.version>3.1.2</spark.version>
+        <hadoop.version>3.2</hadoop.version>
+    </properties>
+
+    <dependencies>
+        <dependency>
+            <groupId>org.apache.spark</groupId>
+            <artifactId>spark-core_${scala.version}</artifactId>
+            <version>${spark.version}</version>
+        </dependency>
+    </dependencies>
+
+    <build>
+        <plugins>
+        <!-- 该插件将scala代码编译成class文件 -->
+        <plugin>
+            <groupId>net.alchim31.maven</groupId>
+            <artifactId>scala-maven-plugin</artifactId>
+            <version>3.2.2</version>
+            <executions>
+                <execution>
+                    <goals>
+                        <goal>compile</goal>
+                        <goal>testCompile</goal>
+                    </goals>
+                </execution>
+            </executions>
+        </plugin>
+        </plugins>
+    </build>
+
+</project>
 ```
 
-#### 运行结果
 
-![image-20210802194530052](images/image-20210802194530052.png)
+
+#### 本地运行
+
+![image-20210819095652554](images/image-20210819095652554.png)
+
+
+
+#### 集群运行
+
+##### Input文件上传HDFS
+
+```shell
+[root@node1 hadoop-3.1.3]# bin/hdfs dfs -put /home/hadoop/input/* /tmp/input/
+
+# 验证上传是否成功
+[root@node1 hadoop-3.1.3]# bin/hdfs dfs -ls /tmp/input/
+SLF4J: Class path contains multiple SLF4J bindings.
+SLF4J: Found binding in [jar:file:/opt/software/hadoop-3.1.3/share/hadoop/common/lib/slf4j-log4j12-1.7.25.jar!/org/slf4j/impl/StaticLoggerBinder.class]
+SLF4J: Found binding in [jar:file:/opt/software/hive-3.1.2/lib/log4j-slf4j-impl-2.10.0.jar!/org/slf4j/impl/StaticLoggerBinder.class]
+SLF4J: See http://www.slf4j.org/codes.html#multiple_bindings for an explanation.
+SLF4J: Actual binding is of type [org.slf4j.impl.Log4jLoggerFactory]
+Found 4 items
+-rw-r--r--   3 root supergroup         16 2021-08-18 15:57 /tmp/input/0
+-rw-r--r--   3 root supergroup         10 2021-08-18 15:57 /tmp/input/1
+-rw-r--r--   3 root supergroup         14 2021-08-18 15:57 /tmp/input/2
+```
+
+##### spark-submit提交jar包
+
+```shell
+#  hdfs 路径
+[root@node1 hadoop-3.1.3]# bin/spark-submit --master yarn --deploy-mode client --class com.geektime.InvertedIndex1 /home/hadoop/SparkAPI-1.0-SNAPSHOT.jar hdfs:///tmp/input/ hdfs:///tmp/output/
+
+# 本地路径
+[root@node1 hadoop-3.1.3]#  bin/spark-submit --master yarn --deploy-mode client --class com.geektime.InvertedIndex1 /home/hadoop/SparkAPI-1.0-SNAPSHOT.jar file:///home/hadoop/input/ file:///home/hadoop/output/
+```
+
+##### 运行结果
+
+![image-20210819214301972](../../../BigData/Presto/images/image-20210819214301972.png)
+
+
 
 ## 题目2
-
-中等：找出男性评分最高且评分次数超过50次的10部电影，展示电影名，平均影评分和评分次数
-
-### SQL
-
-```sql
-SELECT t.sex AS sex,
-       t2.moviename AS name,
-       avg(t1.rate) AS avgrate,
-       count(*) AS total
-FROM hive_sql_test1.t_user t
-INNER JOIN hive_sql_test1.t_rating t1 ON (T.userid = T1.userid)
-INNER JOIN hive_sql_test1.t_movie t2 on(t1.movieid = t2.movieid)
-WHERE t.sex = 'M'
-GROUP BY T.sex,
-         t2.moviename
-HAVING count(*) > 50
-ORDER BY avgrate DESC
-LIMIT 10 ;
-```
-
-### 运行结果
-
-![image-20210802210742574](images/image-20210802210742574.png)
-
-
-
-## 题目3(选做)
 
 困难：找出影评次数最多的女士所给出最高分的10部电影的平均影评分，展示电影名和平均影评分（可使用多行SQL）
 
@@ -171,854 +274,6 @@ ORDER BY avgrate DESC ;
 
 
 ![image-20210803174200784](images/image-20210803174200784.png)
-
-
-
-## GeekFileFormat实现
-
-项目源码位置 : https://github.com/wanghuan2054/geektime/tree/master/0801HiveSQL
-
-### POM文件
-
-```shell
-<?xml version="1.0" encoding="UTF-8"?>
-<project xmlns="http://maven.apache.org/POM/4.0.0"
-         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
-         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
-    <modelVersion>4.0.0</modelVersion>
-
-    <groupId>org.example</groupId>
-    <artifactId>HiveCustomFormat</artifactId>
-    <version>1.0</version>
-
-    <properties>
-        <maven.compiler.source>8</maven.compiler.source>
-        <maven.compiler.target>8</maven.compiler.target>
-        <java.version>1.8</java.version>
-        <hadoop.version>3.1.3</hadoop.version>
-        <hive.version>3.1.2</hive.version>
-    </properties>
-    <dependencies>
-    <dependency>
-        <groupId>org.apache.hadoop</groupId>
-        <artifactId>hadoop-client</artifactId>
-        <version>${hadoop.version}</version>
-    </dependency>
-    <dependency>
-        <groupId>org.apache.hadoop</groupId>
-        <artifactId>hadoop-common</artifactId>
-        <version>${hadoop.version}</version>
-    </dependency>
-    <dependency>
-        <groupId>org.apache.hive</groupId>
-        <artifactId>hive-exec</artifactId>
-        <version>${hive.version}</version>
-    </dependency>
-    </dependencies>
-</project>
-```
-
-
-
-### GeekTextInputFormat核心代码（解密）
-
-```java
- @Override
-        public boolean next(LongWritable key, Text value) throws IOException {
-            while(reader.next(key, text)) {
-                String strReplace =  text.toString().toLowerCase().replaceAll("ge{2,256}k", "");
-                Text txtReplace = new Text();
-                txtReplace.set(strReplace);
-                value.set(txtReplace.getBytes(), 0, txtReplace.getLength());
-                return true;
-            }
-                return false;
-        }
-```
-
-### GeekTextOutputFormat核心代码(加密)
-
-```java
-        @Override
-        public void write(Writable w) throws IOException {
-            // Get input data
-            Text tmpText = ((Text) w);
-            StringBuilder sb = new StringBuilder() ;
-            String str =  tmpText.toString() ;
-            String[] words = str.toString().toLowerCase().split("\\s+") ;
-            // 生成一个 min-max 之间的随机整数
-            int min = 2  ;
-            int max = 256 ;
-            int randomNum = getRandomNum(min,max) ;
-            int validWordCnt = 0 ;
-            boolean flag = true ;
-            for (String word: words) {
-                // 如果是有效单词， 统计数+1 ， 方便后面生成gee...K , 生成中间e的个数使用
-                if(checkValidWord(word)){
-                    validWordCnt++ ;
-                }
-                // 随机数个单词标记
-                randomNum -- ;
-                // 行首单词不加空格
-                if (flag){
-                    flag =  false ;
-                    sb.append(word) ;
-                }
-                else  {
-                    // 非行首单词输出空格+单词
-                    sb.append(" " + word) ;
-                }
-                // 输出指定生成随机数个单词后，进行插入操作
-                if (0 == randomNum){
-                    // 生成指定min-max区间的随机整数
-                    randomNum = getRandomNum(min,max) ;
-                    // 利用之前产生的有效单词数，生成gee...K
-                    String insertWord =  generateGeek(validWordCnt);
-                    sb.append(" " + insertWord);
-                    // 插入单词之后 ，有效单词总数从新开始计数
-                    validWordCnt = 0  ;
-                }
-            }
-            String strReplace =  sb.toString();
-            Text output = new Text();
-            output.set(strReplace);
-            text.set(output.getBytes(), 0, output.getLength());
-            writer.write(text);
-        }
-        public static int getRandomNum(int min , int max){
-            return (int) (Math.random()*(max-min)+min) ;
-        }
-		// 产生中间连续N个e
-        public static String generateGeek(int eCnt){
-            String prefix = "g" ;
-            String loopStr = "e" ;
-            String suffix = "k" ;
-            StringBuilder sb = new StringBuilder(prefix) ;
-            for (int i = 0; i < eCnt; i++) {
-                sb.append(loopStr) ;
-            }
-            return sb.append(suffix).toString();
-        }
-
-        // 检测是否为有效字符 ,非gee...k单词
-		public static boolean checkValidWord(String word){
-            boolean res = true;
-
-            String tmp = word;
-            tmp = tmp.replaceAll("\\p{P}", "");
-            if (word.length() != tmp.length()) {
-                res = false;
-            }
-            // 定义模式匹配
-            Pattern pattern = Pattern.compile("ge{2,256}k");
-            Matcher matcher = pattern.matcher(word) ;
-            // matches 进行全局匹配 与给定的字符串进行全匹配
-            // 测试word 中包含geek , 返回false
-            res = !matcher.matches();
-            return res;
-        }
-```
-
-### 上传数据和jar到hdfs
-
-登录到jikehadoop01节点
-
-```shell
-#上传jar
-[student@jikehadoop01 ~]$ hadoop fs -put /home/student/wanghuan/HiveCustomFormat-1.0.jar /user/student/wanghuan/
-
-[student@jikehadoop01 ~]$ hadoop fs -ls /user/student/wanghuan
-Found 3 items
--rw-r--r--   3 student student      18479 2021-08-05 00:36 /user/student/wanghuan/HiveCustomFormat-1.0.jar
--rw-r--r--   3 student student       2110 2021-07-11 22:54 /user/student/wanghuan/phone_data.txt
--rw-r--r--   3 student student       8870 2021-07-11 22:58 /user/student/wanghuan/wanghuanmr-1.0-SNAPSHOT.jar
-
-#上传数据文件
-[student@jikehadoop01 ~]$ hadoop fs -put /home/student/wanghuan/geek.txt /user/student/wanghuan/
-[student@jikehadoop01 ~]$ hadoop fs -ls /user/student/wanghuan/
-Found 4 items
--rw-r--r--   3 student student      18479 2021-08-05 00:36 /user/student/wanghuan/HiveCustomFormat-1.0.jar
--rw-r--r--   3 student student        730 2021-08-05 00:41 /user/student/wanghuan/geek.txt
--rw-r--r--   3 student student       2110 2021-07-11 22:54 /user/student/wanghuan/phone_data.txt
--rw-r--r--   3 student student       8870 2021-07-11 22:58 /user/student/wanghuan/wanghuanmr-1.0-SNAPSHOT.jar
-```
-
-### Hive CLI 操作
-
-登录到 Alibaba Cloud Elastic Compute Service 
-
-#### 创建Hive数据库
-
-```sql
-hive> create database wanghuan ;
-OK
-Time taken: 0.077 seconds
-```
-
-#### 添加jar包
-
-为了避免在hive cli执行SQL ， 报找不到class错误进行如下操作。
-
-错误1 ：Caused by: org.apache.hive.com.esotericsoftware.kryo.KryoException: java.lang.IllegalArgumentException: Unable to create serializer "org.apache.hive.com.esotericsoftware.kryo.serializers.FieldSerializer" for class: hive.inoutformat.GeekTextOutputFormat
-
-##### add jar（临时添加到hive 窗口）
-
-重启失效
-
-```shell
-hive>add jar hdfs:///user/student/wanghuan/HiveCustomFormat-1.0.jar;
-Added [/tmp/e80feb11-9d66-4d37-a662-2c90e106a810_resources/HiveCustomFormat-1.0.jar] to class path
-Added resources: [hdfs:///user/student/wanghuan/HiveCustomFormat-1.0.jar]
-```
-
-##### 创建auxlib（永久生效， 推荐）
-
-重启session 和hive server 永久生效
-
-```shell
-#  /opt/software/hive-3.1.2
-[root@node1 hive-3.1.2]# mkdir auxlib
-
-# 将/opt/software/hive-3.1.2/hive-exec-3.1.2.jar copy到auxlib
-[root@node1 hive-3.1.2]# ls auxlib/
-HiveCustomFormat-1.0.jar  hive-exec-3.1.2.jar
-
-# 将自定义HiveCustomFormat-1.0.jar上传到auxlib
-[root@node1 hive-3.1.2]# ls auxlib/
-HiveCustomFormat-1.0.jar  hive-exec-3.1.2.jar
-
-# 将上述配置同步到其它节点， 防止hive 中执行insert into， mr job其它节点上找不到依赖包会报错
-
-Error: java.lang.RuntimeException: Error in configuring object
-        at org.apache.hadoop.util.ReflectionUtils.setJobConf(ReflectionUtils.java:113)
-        at org.apache.hadoop.util.ReflectionUtils.setConf(ReflectionUtils.java:79)
-        at org.apache.hadoop.util.ReflectionUtils.newInstance(ReflectionUtils.java:137)
-        at org.apache.hadoop.mapred.ReduceTask.runOldReducer(ReduceTask.java:411)
-        at org.apache.hadoop.mapred.ReduceTask.run(ReduceTask.java:393)
-        at org.apache.hadoop.mapred.YarnChild$2.run(YarnChild.java:174)
-        at java.security.AccessController.doPrivileged(Native Method)
-        at javax.security.auth.Subject.doAs(Subject.java:422)
-        at org.apache.hadoop.security.UserGroupInformation.doAs(UserGroupInformation.java:1729)
-        at org.apache.hadoop.mapred.YarnChild.main(YarnChild.java:168)
-Caused by: java.lang.reflect.InvocationTargetException
-        at sun.reflect.NativeMethodAccessorImpl.invoke0(Native Method)
-        at sun.reflect.NativeMethodAccessorImpl.invoke(NativeMethodAccessorImpl.java:62)
-        at sun.reflect.DelegatingMethodAccessorImpl.invoke(DelegatingMethodAccessorImpl.java:43)
-        at java.lang.reflect.Method.invoke(Method.java:498)
-        at org.apache.hadoop.util.ReflectionUtils.setJobConf(ReflectionUtils.java:110)
-        ... 9 more
-Caused by: java.lang.RuntimeException: Failed to load plan: hdfs://myhadoop/tmp/hive/root/a71627ee-b40b-44b3-bb4e-f13172a32935/hive_2021-08-05_10-54-32_955_2551024584249369308-1/-mr-10004/393d1f82-a3bd-44ad-bc1c-489e480ac5c0/reduce.xml
-        at org.apache.hadoop.hive.ql.exec.Utilities.getBaseWork(Utilities.java:502)
-        at org.apache.hadoop.hive.ql.exec.Utilities.getReduceWork(Utilities.java:346)
-        at org.apache.hadoop.hive.ql.exec.mr.ExecReducer.configure(ExecReducer.java:110)
-        ... 14 more
-Caused by: org.apache.hive.com.esotericsoftware.kryo.KryoException: java.lang.IllegalArgumentException: Unable to create serializer "org.apache.hive.com.esotericsoftware.kryo.serializers.FieldSerializer" for class: org.apache.hadoop.hive.ql.io.GeekTextOutputFormat
-Serialization trace:
-```
-
-#### hive支持本地模式
-
-```shell
-# hive的Job交给yarn执行太慢，hive支持本地模式
-set hive.exec.mode.local.auto=true;
-```
-
-### 验证解密是否成功
-
-#### 创建Hive表
-
-```sql
-# 切换数据库
-hive> use wanghuan ;
-OK
-Time taken: 0.029 seconds
-# 创建表
-create table IF NOT EXISTS geektime_input (  
-   content string
-)  
-ROW FORMAT DELIMITED FIELDS TERMINATED BY '\n' LINES TERMINATED BY '\n'
-stored as  
-INPUTFORMAT 'hive.inoutformat.GeekTextInputFormat'  
-OUTPUTFORMAT 'org.apache.hadoop.hive.ql.io.HiveIgnoreKeyTextOutputFormat' ;
-
-hive> create table IF NOT EXISTS geektime_input (
-    >    content string
-    > )
-    > ROW FORMAT DELIMITED FIELDS TERMINATED BY '\n' LINES TERMINATED BY '\n'
-    > stored as
-    > INPUTFORMAT 'hive.inoutformat.GeekTextInputFormat'
-    > OUTPUTFORMAT 'org.apache.hadoop.hive.ql.io.HiveIgnoreKeyTextOutputFormat' ;
-OK
-Time taken: 0.24 seconds
-```
-
-#### Load data
-
-```sql
-# 本地加载
-load data local inpath '/home/student/wanghuan/geek.txt' overwrite into table geektime_input;
-# hdfs 加载
-load data inpath '/user/student/wanghuan/geek.txt' overwrite into table geektime_input;
-```
-
-#### 查看表（验证GeekTextInputFormat解密）
-
-```sql
-例如：    This notebook can be geeeek used to geek install gek on all geeeek worker nodes, run data generation, and create the TPCDS geeeeeeeeek database.
-解密为：This notebook can be used to install gek on all worker nodes, run data generation, and create the TPCDS database.
-
-hive> show tables ;
-OK
-geektime_input
-Time taken: 0.084 seconds, Fetched: 1 row(s)
-hive> select * from geektime_input ;
-OK
-this notebook can be  used to  install gek on all  worker nodes, run data generation, and create the tpcds  database.
-this notebook can be  used to  install gek on all  worker nodes, run data generation, and create the tpcds  database.
-this notebook can be  used to  install gek on all  worker nodes, run data generation, and create the tpcds  database.
-this notebook can be  used to  install gek on all  worker nodes, run data generation, and create the tpcds  database.
-this notebook can be  used to  install gek on all  worker nodes, run data generation, and create the tpcds  database.
-Time taken: 0.233 seconds, Fetched: 5 row(s)
-```
-
-#### Insert data 
-
-```sql
-hive> insert into geektime_input (content) values("This notebook can be geeeek used to geek install gek on all geeeek worker nodes, run data generation, and create the TPCDS geeeeeeeeek database.");
-Query ID = student_20210805004916_1da574e6-8bd7-4652-ad9f-b10f6b9e6307
-
-# 查看刚才插入的数据，被成功解密显示
-hive> select * from geektime_input ;
-OK
-this notebook can be  used to  install gek on all  worker nodes, run data generation, and create the tpcds  database.
-wang huan can be  kafka to  flink gek on all  hudi nodes, spark data generation, and hadoop the nihao  database.
-wang huan can be  kafka to  flink gek on all  hudi nodes, spark data generation, and hadoop the nihao  database.
-this notebook can be  used to  install gek on all  worker nodes, run data generation, and create the tpcds  database.
-this notebook can be  used to  install gek on all  worker nodes, run data generation, and create the tpcds  database.
-this notebook can be  used to  install gek on all  worker nodes, run data generation, and create the tpcds  database.
-this notebook can be  used to  install gek on all  worker nodes, run data generation, and create the tpcds  database.
-this notebook can be  used to  install gek on all  worker nodes, run data generation, and create the tpcds  database.
-this notebook can be  used to  install gek on all  worker nodes, run data generation, and create the tpcds  database.
-Time taken: 0.042 seconds, Fetched: 9 row(s)
-
-```
-
-### 验证加密是否成功
-
-#### 创建Hive表
-
-```sql
-# 切换数据库
-hive> use wanghuan ;
-OK
-Time taken: 0.029 seconds
-# 创建表
-create table IF NOT EXISTS geektime_output (  
-   content string
-)  
-ROW FORMAT DELIMITED 
-  FIELDS TERMINATED BY '\n'
-  LINES TERMINATED BY '\n'
-stored as  
-INPUTFORMAT 'org.apache.hadoop.mapred.TextInputFormat'  
-OUTPUTFORMAT 'hive.inoutformat.GeekTextOutputFormat' ;
-
-hive> create table IF NOT EXISTS geektime_output (
-    >    content string
-    > )
-    > ROW FORMAT DELIMITED
-    >   FIELDS TERMINATED BY '\n'
-    >   LINES TERMINATED BY '\n'
-    > stored as
-    > INPUTFORMAT 'org.apache.hadoop.mapred.TextInputFormat'
-    > OUTPUTFORMAT 'hive.inoutformat.GeekTextOutputFormat' ;
-OK
-Time taken: 0.104 seconds
-```
-
-#### Load data
-
-```sql
-# 本地加载
-load data local inpath '/home/student/wanghuan/geek.txt' overwrite into table geektime_output;
-# hdfs 加载
-load data inpath '/user/student/wanghuan/geek.txt' overwrite into table geektime_output;
-```
-
-#### 查看表（验证GeekTextInputFormat加密）
-
-```sql
-例如：    This notebook can be used to install gek on all worker nodes, run data generation, and create the TPCDS database.
-加密为：This notebook can be geeeek used to geek install gek on all geeeek worker nodes, run data generation, and create the TPCDS geeeeeeeeek database.
-
-
-hive> show tables;
-OK
-geektime_input
-geektime_output
-Time taken: 0.037 seconds, Fetched: 2 row(s)
-
-# 旧数据没有加密
-hive> select * from geektime_output ;
-OK
-This notebook can be geeeek used to geek install gek on all geeeek worker nodes, run data generation, and create the TPCDS geeeeeeeeek database.
-This notebook can be geeeek used to geek install gek on all geeeek worker nodes, run data generation, and create the TPCDS geeeeeeeeek database.
-This notebook can be geeeek used to geek install gek on all geeeek worker nodes, run data generation, and create the TPCDS geeeeeeeeek database.
-This notebook can be geeeek used to geek install gek on all geeeek worker nodes, run data generation, and create the TPCDS geeeeeeeeek database.
-This notebook can be geeeek used to geek install gek on all geeeek worker nodes, run data generation, and create the TPCDS geeeeeeeeek database.
-Time taken: 0.046 seconds, Fetched: 5 row(s)
-
-# 插入新数据
-hive> insert into geektime_output (content) values("This notebook can be used to install gek on all worker nodes, run data generation, and create the TPCDS database.");
-
-# 查看新数据是否加密
-hive> select * from geektime_output ;
-OK
-this notebook geek can be geek used to install gek geeeek on all geek worker nodes, run geeek data generation, and create the geeeeek tpcds database.
-This notebook can be geeeek used to geek install gek on all geeeek worker nodes, run data generation, and create the TPCDS geeeeeeeeek database.
-This notebook can be geeeek used to geek install gek on all geeeek worker nodes, run data generation, and create the TPCDS geeeeeeeeek database.
-This notebook can be geeeek used to geek install gek on all geeeek worker nodes, run data generation, and create the TPCDS geeeeeeeeek database.
-This notebook can be geeeek used to geek install gek on all geeeek worker nodes, run data generation, and create the TPCDS geeeeeeeeek database.
-This notebook can be geeeek used to geek install gek on all geeeek worker nodes, run data generation, and create the TPCDS geeeeeeeeek database.
-```
-
-### 同时验证加密解密是否成功
-
-#### 创建Hive表
-
-```sql
-# 切换数据库
-hive> use wanghuan ;
-OK
-Time taken: 0.029 seconds
-# 创建表
-create table IF NOT EXISTS geektime_inoutput (  
-   content string
-)  
-ROW FORMAT DELIMITED 
-  FIELDS TERMINATED BY '\n'
-  LINES TERMINATED BY '\n'
-stored as  
-INPUTFORMAT 'hive.inoutformat.GeekTextInputFormat'  
-OUTPUTFORMAT 'hive.inoutformat.GeekTextOutputFormat' ;
-
-hive> create table IF NOT EXISTS geektime_inoutput (
-    >    content string
-    > )
-    > ROW FORMAT DELIMITED
-    >   FIELDS TERMINATED BY '\n'
-    >   LINES TERMINATED BY '\n'
-    > stored as
-    > INPUTFORMAT 'hive.inoutformat.GeekTextInputFormat'
-    > OUTPUTFORMAT 'hive.inoutformat.GeekTextOutputFormat' ;
-OK
-Time taken: 0.094 seconds
-
-```
-
-#### Load data
-
-```sql
-# 本地加载
-load data local inpath '/home/student/wanghuan/geek.txt' overwrite into table geektime_inoutput;
-# hdfs 加载
-load data inpath '/user/student/wanghuan/geek.txt' overwrite into table geektime_inoutput;
-```
-
-#### 查看表（验证加密解密）
-
-```sql
-hive> show tables;
-OK
-geektime_inoutput
-geektime_input
-geektime_output
-Time taken: 0.029 seconds, Fetched: 3 row(s)
-
-
-# 数据已经解密
-hive> select * from geektime_inoutput;
-OK
-this notebook can be  used to  install gek on all  worker nodes, run data generation, and create the tpcds  database.
-this notebook can be  used to  install gek on all  worker nodes, run data generation, and create the tpcds  database.
-this notebook can be  used to  install gek on all  worker nodes, run data generation, and create the tpcds  database.
-this notebook can be  used to  install gek on all  worker nodes, run data generation, and create the tpcds  database.
-this notebook can be  used to  install gek on all  worker nodes, run data generation, and create the tpcds  database.
-
-
-# 插入新数据
-hive> insert into geektime_inoutput (content) values("This notebook can be used to install gek on all worker nodes, run data generation, and create the TPCDS database.");
-
-# 查看新数据已经是解密过后的数据
-hive> select * from geektime_inoutput ;
-OK
-this notebook can  be used to  install gek  on all worker nodes,  run data generation, and  create the tpcds  database.
-this notebook can  be used to install gek  on all worker nodes, run  data generation,  and create the tpcds  database.
-this notebook can be  used to  install gek on all  worker nodes, run data generation, and create the tpcds  database.
-this notebook can be  used to  install gek on all  worker nodes, run data generation, and create the tpcds  database.
-this notebook can be  used to  install gek on all  worker nodes, run data generation, and create the tpcds  database.
-this notebook can be  used to  install gek on all  worker nodes, run data generation, and create the tpcds  database.
-this notebook can be  used to  install gek on all  worker nodes, run data generation, and create the tpcds  database.
-```
-
-### 表Schema
-
-#### geektime_input
-
-InputFormat:            hive.inoutformat.GeekTextInputFormat
-OutputFormat:           org.apache.hadoop.hive.ql.io.HiveIgnoreKeyTextOutputFormat
-
-```sql
-hive> desc formatted geektime_input ;
-OK
-# col_name              data_type               comment
-
-content                 string
-
-# Detailed Table Information
-Database:               wanghuan
-OwnerType:              USER
-Owner:                  student
-CreateTime:             Thu Aug 05 00:39:46 CST 2021
-LastAccessTime:         UNKNOWN
-Retention:              0
-Location:               hdfs://jikehadoop01:8020/user/hive/warehouse/wanghuan.db/geektime_input
-Table Type:             MANAGED_TABLE
-Table Parameters:
-        numFiles                6
-        numRows                 0
-        rawDataSize             0
-        totalSize               1445
-        transient_lastDdlTime   1628096654
-
-# Storage Information
-SerDe Library:          org.apache.hadoop.hive.serde2.lazy.LazySimpleSerDe
-InputFormat:            hive.inoutformat.GeekTextInputFormat
-OutputFormat:           org.apache.hadoop.hive.ql.io.HiveIgnoreKeyTextOutputFormat
-Compressed:             No
-Num Buckets:            -1
-Bucket Columns:         []
-Sort Columns:           []
-Storage Desc Params:
-        field.delim             \n
-        line.delim              \n
-        serialization.format    \n
-Time taken: 0.064 seconds, Fetched: 32 row(s)
-```
-
-#### geektime_output
-
-InputFormat:            org.apache.hadoop.mapred.TextInputFormat
-OutputFormat:           hive.inoutformat.GeekTextOutputFormat
-
-```sql
-hive> desc formatted geektime_output ;
-OK
-# col_name              data_type               comment
-
-content                 string
-
-# Detailed Table Information
-Database:               wanghuan
-OwnerType:              USER
-Owner:                  student
-CreateTime:             Thu Aug 05 00:53:27 CST 2021
-LastAccessTime:         UNKNOWN
-Retention:              0
-Location:               hdfs://jikehadoop01:8020/user/hive/warehouse/wanghuan.db/geektime_output
-Table Type:             MANAGED_TABLE
-Table Parameters:
-        numFiles                4
-        numRows                 0
-        rawDataSize             0
-        totalSize               1200
-        transient_lastDdlTime   1628097015
-
-# Storage Information
-SerDe Library:          org.apache.hadoop.hive.serde2.lazy.LazySimpleSerDe
-InputFormat:            org.apache.hadoop.mapred.TextInputFormat
-OutputFormat:           hive.inoutformat.GeekTextOutputFormat
-Compressed:             No
-Num Buckets:            -1
-Bucket Columns:         []
-Sort Columns:           []
-Storage Desc Params:
-        field.delim             \n
-        line.delim              \n
-        serialization.format    \n
-Time taken: 0.047 seconds, Fetched: 32 row(s)
-```
-
-#### geektime_inoutput
-
-InputFormat:            hive.inoutformat.GeekTextInputFormat
-OutputFormat:           hive.inoutformat.GeekTextOutputFormat
-
-```sql
-hive> desc formatted geektime_inoutput ;
-OK
-# col_name              data_type               comment
-
-content                 string
-
-# Detailed Table Information
-Database:               wanghuan
-OwnerType:              USER
-Owner:                  student
-CreateTime:             Thu Aug 05 01:06:45 CST 2021
-LastAccessTime:         UNKNOWN
-Retention:              0
-Location:               hdfs://jikehadoop01:8020/user/hive/warehouse/wanghuan.db/geektime_inoutput
-Table Type:             MANAGED_TABLE
-Table Parameters:
-        numFiles                3
-        numRows                 0
-        rawDataSize             0
-        totalSize               1029
-        transient_lastDdlTime   1628097087
-
-# Storage Information
-SerDe Library:          org.apache.hadoop.hive.serde2.lazy.LazySimpleSerDe
-InputFormat:            hive.inoutformat.GeekTextInputFormat
-OutputFormat:           hive.inoutformat.GeekTextOutputFormat
-Compressed:             No
-Num Buckets:            -1
-Bucket Columns:         []
-Sort Columns:           []
-Storage Desc Params:
-        field.delim             \n
-        line.delim              \n
-        serialization.format    \n
-Time taken: 0.049 seconds, Fetched: 32 row(s)
-```
-
-### store as 短名
-
-官网参考 ：https://cwiki.apache.org/confluence/display/Hive/DeveloperGuide#DeveloperGuide-CodeOrganizationandaBriefArchitecture
-
-#### Hive源码下载
-
-对应hive版本选择为3.1.2
-
-```shell
-git clone git@github.com:apache/hive.git
-```
-
-#### 实现GeekFileStorageFormatDescriptor
-
-```java
-package org.apache.hadoop.hive.ql.io;
-
-import com.esotericsoftware.kryo.serializers.FieldSerializer;
-import com.google.common.collect.ImmutableSet;
-
-import java.util.Set;
-
-public class GeekFileStorageFormatDescriptor extends AbstractStorageFormatDescriptor {
-  @Override
-  public Set<String> getNames() {
-    return ImmutableSet.of(IOConstants.GEEKFILE);
-  }
-  @Override
-  public String getInputFormat() {
-    return GeekTextInputFormat.class.getName();
-  }
-  @Override
-  public String getOutputFormat() {
-    return GeekTextOutputFormat.class.getName();
-  }
-}
-```
-
-#### 修改IOConstants类
-
-定义store as 后的短名， GEEKFILE
-
-```java
-package org.apache.hadoop.hive.ql.io;
-
-import org.apache.hadoop.mapred.TextInputFormat;
-
-import com.google.common.annotations.VisibleForTesting;
-
-public final class IOConstants {
-  public static final String COLUMNS = "columns";
-  public static final String COLUMNS_TYPES = "columns.types";
-  public static final String MAPRED_TASK_ID = "mapred.task.id";
-
-  public static final String TEXTFILE = "TEXTFILE";
-  public static final String SEQUENCEFILE = "SEQUENCEFILE";
-  public static final String RCFILE = "RCFILE";
-  public static final String ORC = "ORC";
-  public static final String ORCFILE = "ORCFILE";
-  public static final String PARQUET = "PARQUET";
-  public static final String PARQUETFILE = "PARQUETFILE";
-  public static final String AVRO = "AVRO";
-  public static final String AVROFILE = "AVROFILE";
-  public static final String GEEKFILE = "GEEKFILE";
-```
-
-将GeekTextInputFormat、GeekTextOutputFormat实现类拷贝至hive 源码 ql/org/apache/hadoop/hive/ql/io 目录下
-
-![image-20210805190410979](images/image-20210805190410979.png)
-
-
-
-```
-找到下图 org.apache.hadoop.hive.ql.io.StorageFormatDescriptor文件，添加如下一行至末尾
-org.apache.hadoop.hive.ql.io.GeekFileStorageFormatDescriptor
-```
-
-![image-20210805190537288](images/image-20210805190537288.png)
-
-#### module 打包
-
-对hive源码中， Hive Query Language module（hive-exec包）进行maven 打包，IDEA中 Maven 打包跳过Test目录
-
-![image-20210805190747363](images/image-20210805190747363.png)
-
-#### 打包完上传jar 
-
-```shell
-1. 将打包完的jar ， 上传至Hive目录下lib下
-
-[root@node1 auxlib]# ls /opt/software/hive-3.1.2/auxlib
-HiveCustomFormat-1.0.jar  hive-exec-3.1.2.jar
-
-[root@node1 auxlib]# ls /opt/software/hive-3.1.2/lib | grep hive-exec
-hive-exec-3.1.2.jar
-
-# 分包至其它节点
-```
-
-#### Hive CLI验证
-
-```sql
-# 创建表 ， 使用stored as  GEEKFILE
-create table IF NOT EXISTS geektime_inoutstore (  
-   content string
-)  
-ROW FORMAT DELIMITED 
-  FIELDS TERMINATED BY '\n'
-  LINES TERMINATED BY '\n'
-stored as  GEEKFILE;
-
-hive (default)> create table IF NOT EXISTS geektime_inoutstore (
-              >    content string
-              > )
-              > ROW FORMAT DELIMITED
-              >   FIELDS TERMINATED BY '\n'
-              >   LINES TERMINATED BY '\n'
-              > stored as  GEEKFILE;
-OK
-Time taken: 0.047 seconds
-
-# 导入数据
-hive (default)> load data local inpath '/home/hive/geek.txt' overwrite into table geektime_inoutstore;
-Loading data to table default.geektime_inoutstore
-OK
-Time taken: 2.113 seconds
-
-# 执行查询
-hive (default)> select * from geektime_inoutstore;
-OK
-geektime_inoutstore.content
-this notebook can be  used to  install gek on all  worker nodes, run data generation, and create the tpcds  database.
-this notebook can be  used to  install gek on all  worker nodes, run data generation, and create the tpcds  database.
-this notebook can be  used to  install gek on all  worker nodes, run data generation, and create the tpcds  database.
-this notebook can be  used to  install gek on all  worker nodes, run data generation, and create the tpcds  database.
-this notebook can be  used to  install gek on all  worker nodes, run data generation, and create the tpcds  database.
-Time taken: 0.162 seconds, Fetched: 5 row(s)
-
-# 插入数据
-hive (default)> insert into geektime_inoutstore (content) values("This notebook can be used to install gek on all worker nodes, run data generation, and create the TPCDS database.");
-Automatically selecting local only mode for query
-Query ID = root_20210805191554_856d2253-5413-42eb-8579-130dfb7b8872
-Total jobs = 3
-Launching Job 1 out of 3
-Number of reduce tasks determined at compile time: 1
-In order to change the average load for a reducer (in bytes):
-  set hive.exec.reducers.bytes.per.reducer=<number>
-In order to limit the maximum number of reducers:
-  set hive.exec.reducers.max=<number>
-In order to set a constant number of reducers:
-  set mapreduce.job.reduces=<number>
-Job running in-process (local Hadoop)
-2021-08-05 19:15:57,827 Stage-1 map = 0%,  reduce = 0%
-2021-08-05 19:15:58,841 Stage-1 map = 100%,  reduce = 0%
-2021-08-05 19:15:59,853 Stage-1 map = 100%,  reduce = 100%
-Ended Job = job_local209362252_0001
-Stage-4 is selected by condition resolver.
-Stage-3 is filtered out by condition resolver.
-Stage-5 is filtered out by condition resolver.
-Moving data to directory hdfs://myhadoop/user/hive/warehouse/geektime_inoutstore/.hive-staging_hive_2021-08-05_19-15-54_752_3262106439066643282-1/-ext-10000
-Loading data to table default.geektime_inoutstore
-MapReduce Jobs Launched:
-Stage-Stage-1:  HDFS Read: 3148 HDFS Write: 1995 SUCCESS
-Total MapReduce CPU Time Spent: 0 msec
-OK
-_col0
-Time taken: 5.704 seconds
-
-# 查询验证刚插入数据是否生效
-hive (default)> select * from geektime_inoutstore;
-OK
-geektime_inoutstore.content
-this notebook can be used to install gek on all worker nodes, run data generation, and create the tpcds database.
-this notebook can be  used to  install gek on all  worker nodes, run data generation, and create the tpcds  database.
-this notebook can be  used to  install gek on all  worker nodes, run data generation, and create the tpcds  database.
-this notebook can be  used to  install gek on all  worker nodes, run data generation, and create the tpcds  database.
-this notebook can be  used to  install gek on all  worker nodes, run data generation, and create the tpcds  database.
-this notebook can be  used to  install gek on all  worker nodes, run data generation, and create the tpcds  database.
-Time taken: 0.179 seconds, Fetched: 6 row(s)
-```
-
-#### geektime_inoutstore表schema
-
-```sql
-hive (default)> desc formatted geektime_inoutstore;
-OK
-col_name        data_type       comment
-# col_name              data_type               comment
-content                 string
-
-# Detailed Table Information
-Database:               default
-OwnerType:              USER
-Owner:                  root
-CreateTime:             Thu Aug 05 10:29:13 CST 2021
-LastAccessTime:         UNKNOWN
-Retention:              0
-Location:               hdfs://myhadoop/user/hive/warehouse/geektime_inoutstore
-Table Type:             MANAGED_TABLE
-Table Parameters:
-        bucketing_version       2
-        numFiles                2
-        numRows                 0
-        rawDataSize             0
-        totalSize               844
-        transient_lastDdlTime   1628162160
-
-# Storage Information
-SerDe Library:          org.apache.hadoop.hive.serde2.lazy.LazySimpleSerDe
-InputFormat:            org.apache.hadoop.hive.ql.io.GeekTextInputFormat
-OutputFormat:           org.apache.hadoop.hive.ql.io.GeekTextOutputFormat
-Compressed:             No
-Num Buckets:            -1
-Bucket Columns:         []
-Sort Columns:           []
-Storage Desc Params:
-        field.delim             \n
-        line.delim              \n
-        serialization.format    \n
-Time taken: 0.124 seconds, Fetched: 32 row(s)
-```
-
-
-
-
-
-
 
 
 
