@@ -226,7 +226,7 @@ https://github.com/wanghuan2054/geektime/tree/master/0815SparkAPI
 
 IDEA 中连接HDFS 进行DistCp 分布式拷贝
 
-![image-20210824220337352](../../../BigData/Presto/images/image-20210824220337352.png)
+![image-20210824220337352](images/image-20210824220337352.png)
 
 #### 集群运行
 
@@ -239,10 +239,8 @@ IDEA 中连接HDFS 进行DistCp 分布式拷贝
 
 ##### 运行结果
 
-![image-20210824220614334](../../../BigData/Presto/images/image-20210824220614334.png)
+![image-20210824220614334](images/image-20210824220614334.png)
 
 
 
-![image-20210824220809820](../../../BigData/Presto/images/image-20210824220809820.png)
-
-## 
+![image-20210824220809820](images/image-20210824220809820.png)
