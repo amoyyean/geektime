@@ -2,45 +2,6 @@ Spark作业
 
 目录： 
 
-[toc]
-
-## Hive 建表
-
-```sql
-create table hive_sql_test1.t_user(
-userid bigint,
-sex String,
-age int,
-occupation String,
-zipcode String
-)
-row format delimited fields terminated by ':';
-load data local inpath '/home/hive/users.dat'  overwrite into  table  hive_sql_test1.t_user;
-
-
-create table hive_sql_test1.t_movie
-(
-movieid bigint,
-moviename string,
-movietype string
-)
-row format delimited fields terminated by ':';
-load data local inpath '/home/hive/movies.dat' overwrite into table hive_sql_test1.t_movie;
-
-
-create table hive_sql_test1.t_rating
-(
-userid bigint,
-movieid bigint,
-rate double,
-times  string
-)
-row format delimited fields terminated by ':';
-load data local inpath '/home/hive/ratings.dat' overwrite into table hive_sql_test1.t_rating;
-```
-
-
-
 ## 题目1 
 
 使用RDD API实现带词频的倒排索引
@@ -195,87 +156,93 @@ Found 4 items
 
 ## 题目2
 
-困难：找出影评次数最多的女士所给出最高分的10部电影的平均影评分，展示电影名和平均影评分（可使用多行SQL）
+Distcp的spark实现
+使用Spark实现Hadoop 分布式数据传输工具DistCp (distributed copy)，只要求实现最基础的copy功
+能，对于-update、-diff、-p不做要求
 
-### 写法1 
+#### POM
 
-嵌套子查询
+```xml
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
 
-#### SQL
+    <groupId>org.example</groupId>
+    <artifactId>SparkAPI</artifactId>
+    <version>1.0-SNAPSHOT</version>
 
-```sql
-SELECT t3.moviename,
-       avg(t2.rate) AS avgrate
-FROM (SELECT a.movieid , a.rate
-   FROM  (SELECT t.userid,
-          count(*) AS total
-   FROM hive_sql_test1.t_user t
-   INNER JOIN hive_sql_test1.t_rating t1 ON (T.userid = T1.userid)
-   WHERE t.sex = 'F'
-   GROUP BY T.userid
-   ORDER BY total DESC
-   LIMIT 1) x
-   inner join hive_sql_test1.t_rating a on (x.userid = a.userid)
-   ORDER BY a.rate DESC
-   LIMIT 10)  t1
-INNER JOIN hive_sql_test1.t_rating t2 on(t1.movieid = t2.movieid)
-INNER JOIN hive_sql_test1.t_movie t3 on(t2.movieid = t3.movieid)
-GROUP BY t2.movieid , t3.moviename
-ORDER BY avgrate DESC ;
+    <properties>
+        <maven.compiler.source>8</maven.compiler.source>
+        <maven.compiler.target>8</maven.compiler.target>
+        <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+        <scala.version>2.12</scala.version>
+        <scala.binary.version>2.12.12</scala.binary.version>
+        <spark.version>3.1.2</spark.version>
+        <hadoop.version>3.1.3</hadoop.version>
+    </properties>
+
+    <dependencies>
+        <dependency>
+            <groupId>org.apache.spark</groupId>
+            <artifactId>spark-core_${scala.version}</artifactId>
+            <version>${spark.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>org.apache.hadoop</groupId>
+            <artifactId>hadoop-client</artifactId>
+            <version>${hadoop.version}</version>
+        </dependency>
+    </dependencies>
+
+    <build>
+        <plugins>
+        <!-- 该插件将scala代码编译成class文件 -->
+        <plugin>
+            <groupId>net.alchim31.maven</groupId>
+            <artifactId>scala-maven-plugin</artifactId>
+            <version>3.2.2</version>
+            <executions>
+                <execution>
+                    <goals>
+                        <goal>compile</goal>
+                        <goal>testCompile</goal>
+                    </goals>
+                </execution>
+            </executions>
+        </plugin>
+        </plugins>
+    </build>
+
+</project>
 ```
 
-#### 运行结果
+#### 源码地址
 
-![image-20210803180848388](images/image-20210803180848388.png)
+https://github.com/wanghuan2054/geektime/tree/master/0815SparkAPI
 
-![image-20210803180929956](images/image-20210803180929956.png)
+#### 本地运行 
 
-### 写法2
+IDEA 中连接HDFS 进行DistCp 分布式拷贝
 
-WITH ..... AS .....
+![image-20210824220337352](../../../BigData/Presto/images/image-20210824220337352.png)
 
-#### SQL
+#### 集群运行
 
-```sql
--- 找出影评次数最多的女士
-WITH Rating_CNT AS
-  (SELECT t.userid,
-          count(*) AS total
-   FROM hive_sql_test1.t_user t
-   INNER JOIN hive_sql_test1.t_rating t1 ON (T.userid = T1.userid)
-   WHERE t.sex = 'F'
-   GROUP BY T.userid
-   ORDER BY total DESC
-   LIMIT 1), 
--- 找出该女士评分最高的10部电影
-TOPMOVIES AS
-  (SELECT a.movieid , a.rate
-   FROM  Rating_CNT x
-   inner join hive_sql_test1.t_rating a on (x.userid = a.userid)
-   ORDER BY a.rate DESC
-   LIMIT 10) 
-   
--- select t2.* from TOPMOVIES t2;
+##### spark-submit提交jar包
 
--- 求这10部电影的平均影评分，展示电影名和平均影评分
-SELECT t3.moviename,
-       avg(t2.rate) AS avgrate
-FROM TOPMOVIES  t1
-INNER JOIN hive_sql_test1.t_rating t2 on(t1.movieid = t2.movieid)
-INNER JOIN hive_sql_test1.t_movie t3 on(t2.movieid = t3.movieid)
-GROUP BY t2.movieid , t3.moviename
-ORDER BY avgrate DESC ;
+```shell
+#  hdfs 路径
+[root@node1 spark-yarn]# bin/spark-submit --master yarn --deploy-mode client --class com.geektime.SparkDistCP /home/hadoop/SparkAPI-1.0-SNAPSHOT.jar hdfs://192.168.2.100:8020/input hdfs://192.168.2.100:8020/input_cp -m 2 -i
 ```
 
-#### 运行结果
+##### 运行结果
 
-![image-20210803174100304](images/image-20210803174100304.png)
-
-
-
-![image-20210803174200784](images/image-20210803174200784.png)
+![image-20210824220614334](../../../BigData/Presto/images/image-20210824220614334.png)
 
 
 
+![image-20210824220809820](../../../BigData/Presto/images/image-20210824220809820.png)
 
-
+## 
