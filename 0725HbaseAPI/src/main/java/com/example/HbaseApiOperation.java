@@ -29,7 +29,8 @@ public class HbaseApiOperation {
     public void init() throws IOException {
         Configuration conf = HBaseConfiguration.create();
         // 设置ZK Server IP
-        conf.set("hbase.zookeeper.quorum", "47.101.206.249:2181,47.101.216.12:2181,47.101.204.23:2181");
+        conf.set("hbase.zookeeper." +
+                "", "47.101.206.249:2181,47.101.216.12:2181,47.101.204.23:2181");
 //        conf.set("hbase.zookeeper.quorum", "192.168.2.100,192.168.2.101,192.168.2.102");
         // // 设置ZK node port
 //        conf.set("hbase.zookeeper.property.clientPort", "2181");
