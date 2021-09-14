@@ -121,22 +121,128 @@ export MAVEN_OPTS="-Xms6g -Xmx6g -XX:+UseG1GC -XX:ReservedCodeCacheSize=2g"
 
 ![image-20210905150143220](images/image-20210905150143220.png)
 
+#### 自定义parser
+
+##### POM
+
+```xml
+<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/maven-v4_0_0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+    <groupId>org.example</groupId>
+    <artifactId>CustomSparkSessionExtension</artifactId>
+    <version>1.0-SNAPSHOT</version>
+    <inceptionYear>2021</inceptionYear>
+    <properties>
+        <maven.compiler.source>8</maven.compiler.source>
+        <maven.compiler.target>8</maven.compiler.target>
+        <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+        <scala.version>2.12</scala.version>
+        <scala.binary.version>2.12.10</scala.binary.version>
+        <spark.version>3.1.2</spark.version>
+    </properties>
+
+    <repositories>
+        <repository>
+            <id>maven-ali</id>
+            <url>http://maven.aliyun.com/nexus/content/groups/public/</url>
+        </repository>
+    </repositories>
+
+    <dependencies>
+        <dependency>
+            <groupId>org.apache.spark</groupId>
+            <artifactId>spark-core_${scala.version}</artifactId>
+            <version>${spark.version}</version>
+<!--            <scope>provided</scope>-->
+        </dependency>
+        <dependency>
+            <groupId>org.apache.spark</groupId>
+            <artifactId>spark-sql_${scala.version}</artifactId>
+            <version>${spark.version}</version>
+<!--            <scope>provided</scope>-->
+        </dependency>
+        <dependency>
+            <groupId>org.apache.spark</groupId>
+            <artifactId>spark-catalyst_${scala.version}</artifactId>
+            <version>${spark.version}</version>
+<!--            <scope>provided</scope>-->
+        </dependency>
+        <dependency>
+            <groupId>org.antlr</groupId>
+            <artifactId>antlr4-runtime</artifactId>
+            <version>4.9.2</version>
+        </dependency>
+    </dependencies>
+
+    <build>
+        <sourceDirectory>src/main/scala</sourceDirectory>
+        <testSourceDirectory>src/test/scala</testSourceDirectory>
+        <plugins>
+            <!-- 该插件将scala代码编译成class文件 -->
+            <plugin>
+                <groupId>net.alchim31.maven</groupId>
+                <artifactId>scala-maven-plugin</artifactId>
+                <version>4.3.0</version>
+                <executions>
+                    <execution>
+                        <goals>
+                            <goal>compile</goal>
+                            <goal>testCompile</goal>
+                        </goals>
+                    </execution>
+                </executions>
+            </plugin>
+
+            <plugin>
+                <groupId>org.antlr</groupId>
+                <artifactId>antlr4-maven-plugin</artifactId>
+                <executions>
+                    <execution>
+                        <goals>
+                            <goal>antlr4</goal>
+                        </goals>
+                    </execution>
+                </executions>
+                <configuration>
+                    <visitor>true</visitor>
+                    <sourceDirectory>./src/main/scala/org/example/customparser</sourceDirectory>
+<!--                    <outputDirectory>C:\Users\49921\Desktop\GeekTime\geektime\0829SparkSQL\src\main\scala\org\example\sparkparser</outputDirectory>-->
+                    <treatWarningsAsErrors>true</treatWarningsAsErrors>
+                </configuration>
+            </plugin>
+
+        </plugins>
+    </build>
+</project>
+```
+
+idea maven打包后上传到/opt/sourcecode
+
+##### 运行命令
+
+```shell
+[root@node1 spark-3.1.2-bin-hadoop3.2]# SPARK_USER=wanghuan bin/spark-sql --jars /opt/sourcecode/CustomSparkSessionExtension-1.0-SNAPSHOT.jar --conf spark.sql.extensions=org.example.MyCustomSparkExtension
+```
+
+![image-20210914225644168](images/image-20210914225644168.png)
+
 ## 题目2
 
 构建SQL满足如下要求
 
 通过set spark.sql.planChangeLog.level=WARN;查看
 1. 构建一条SQL，同时apply下面三条优化规则：
-  CombineFilters
-  CollapseProject
-  BooleanSimplification
+    CombineFilters
+    CollapseProject
+    BooleanSimplification
 
 2. 构建一条SQL，同时apply下面五条优化规则：
-  ConstantFolding
-  PushDownPredicates
-  ReplaceDistinctWithAggregate
-  ReplaceExceptWithAntiJoin
-  FoldablePropagation
+    ConstantFolding
+    PushDownPredicates
+    ReplaceDistinctWithAggregate
+    ReplaceExceptWithAntiJoin
+    FoldablePropagation
 
   
 
