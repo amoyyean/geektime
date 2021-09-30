@@ -145,7 +145,7 @@ SELECT approx_distinct(a.sevencode,0.0040625) AS CNT FROM hive.code_set.yys_code
 
 ### 代码
 
-
+https://github.com/wanghuan2054/geektime/tree/master/0919PrestoSQL
 
 ```java
 package com.geek.sql;
@@ -237,7 +237,7 @@ public class PrestoJDBC {
 }
 ```
 
-
+### IDEA结果
 
 ![image-20210930115316436](images/image-20210930115316436.png)
 
